@@ -1,0 +1,53 @@
+# AI universe — company matching targets.
+# aliases_ci: case-insensitive word-boundary matches. aliases_cs: case-sensitive
+# (used where the lowercase form collides with common words: apple, meta, oracle...).
+# private: no listed equity (materiality workstream out of scope for v1).
+# Persons are deliberately NOT aliases (controversy-project lesson: person/company
+# conflation — e.g. cricket stories polluting Cummins Inc.).
+companies:
+  - { id: openai,           name: OpenAI,              private: true,  aliases_ci: [openai, chatgpt, sora], aliases_cs: ["GPT-4", "GPT-5", "GPT-4o"] }
+  - { id: anthropic,        name: Anthropic,           private: true,  aliases_ci: [anthropic, claude] }
+  - { id: google_deepmind,  name: Alphabet / DeepMind, private: false, aliases_ci: [deepmind, gemini, "google ai", "google deepmind"] }
+  - { id: meta_ai,          name: Meta,                private: false, aliases_ci: ["meta ai", "meta's ai", llama, "meta platforms"], aliases_cs: ["Meta AI", "Llama"] }
+  - { id: microsoft,        name: Microsoft,           private: false, aliases_ci: [microsoft, copilot, "azure ai"] }
+  - { id: xai,              name: xAI,                 private: true,  aliases_ci: [xai, grok], aliases_cs: ["xAI", "Grok"] }
+  - { id: mistral,          name: Mistral AI,          private: true,  aliases_ci: ["mistral ai", mistral] }
+  - { id: cohere,           name: Cohere,              private: true,  aliases_ci: [cohere] }
+  - { id: deepseek,         name: DeepSeek,            private: true,  aliases_ci: [deepseek] }
+  - { id: perplexity,       name: Perplexity,          private: true,  aliases_ci: [perplexity] }
+  - { id: amazon,           name: Amazon,              private: false, aliases_ci: [amazon, "aws bedrock", "amazon bedrock"], aliases_cs: ["AWS"] }
+  - { id: apple,            name: Apple,               private: false, aliases_ci: ["apple intelligence"], aliases_cs: ["Apple"] }
+  - { id: nvidia,           name: Nvidia,              private: false, aliases_ci: [nvidia] }
+  - { id: tesla,            name: Tesla,               private: false, aliases_ci: [tesla, "full self-driving"], aliases_cs: ["FSD"] }
+  - { id: palantir,         name: Palantir,            private: false, aliases_ci: [palantir] }
+  - { id: ibm,              name: IBM,                 private: false, aliases_ci: [watsonx], aliases_cs: ["IBM"] }
+  - { id: salesforce,       name: Salesforce,          private: false, aliases_ci: [salesforce, agentforce] }
+  - { id: oracle,           name: Oracle,              private: false, aliases_cs: ["Oracle"] }
+  - { id: adobe,            name: Adobe,               private: false, aliases_ci: [adobe, firefly] }
+  - { id: databricks,       name: Databricks,          private: true,  aliases_ci: [databricks] }
+  - { id: scale_ai,         name: Scale AI,            private: true,  aliases_ci: ["scale ai"] }
+  - { id: huggingface,      name: Hugging Face,        private: true,  aliases_ci: ["hugging face", huggingface] }
+  - { id: stability,        name: Stability AI,        private: true,  aliases_ci: ["stability ai", "stable diffusion"] }
+  - { id: midjourney,       name: Midjourney,          private: true,  aliases_ci: [midjourney] }
+  - { id: elevenlabs,       name: ElevenLabs,          private: true,  aliases_ci: [elevenlabs] }
+  - { id: synthesia,        name: Synthesia,           private: true,  aliases_ci: [synthesia] }
+  - { id: baidu,            name: Baidu,               private: false, aliases_ci: [baidu, "ernie bot"] }
+  - { id: alibaba,          name: Alibaba,             private: false, aliases_ci: [alibaba, qwen, tongyi] }
+  - { id: tencent,          name: Tencent,             private: false, aliases_ci: [tencent, hunyuan] }
+  - { id: bytedance,        name: ByteDance,           private: true,  aliases_ci: [bytedance, doubao] }
+  - { id: samsung,          name: Samsung,             private: false, aliases_ci: [samsung, "galaxy ai"] }
+  - { id: intel,            name: Intel,               private: false, aliases_cs: ["Intel"] }
+  - { id: amd,              name: AMD,                 private: false, aliases_cs: ["AMD"] }
+  - { id: broadcom,         name: Broadcom,            private: false, aliases_ci: [broadcom] }
+  - { id: tsmc,             name: TSMC,                private: false, aliases_cs: ["TSMC"] }
+  - { id: asml,             name: ASML,                private: false, aliases_cs: ["ASML"] }
+  - { id: coreweave,        name: CoreWeave,           private: false, aliases_ci: [coreweave] }
+  - { id: soundhound,       name: SoundHound,          private: false, aliases_ci: [soundhound] }
+  - { id: c3ai,             name: C3.ai,               private: false, aliases_ci: ["c3.ai"] }
+  - { id: uipath,           name: UiPath,              private: false, aliases_ci: [uipath] }
+  - { id: servicenow,       name: ServiceNow,          private: false, aliases_ci: [servicenow] }
+  - { id: figure_ai,        name: Figure AI,           private: true,  aliases_ci: ["figure ai"] }
+  - { id: waymo,            name: Waymo,               private: false, aliases_ci: [waymo] }
+  - { id: anduril,          name: Anduril,             private: true,  aliases_ci: [anduril] }
+  - { id: ssi,              name: Safe Superintelligence, private: true, aliases_ci: ["safe superintelligence"] }
+  - { id: anysphere,        name: Anysphere (Cursor),  private: true,  aliases_ci: [anysphere, "cursor ai"] }
