@@ -1,0 +1,47 @@
+# AI Trust Tracker — parameters
+# Every value here is a PRIOR (suggested starting value) unless marked otherwise.
+# Calibrated values replace priors only via the proposal -> human-merge contract.
+version: "0.1.0"
+
+rubric:
+  version: "v0-lexicon"   # PRIOR: deterministic lexicon stand-in for the LLM rubric.
+                          # Replace only after per-source kappa >= 0.7 validation.
+  relevance_drop_below: 0.5
+  confidence_review_below: 0.6
+
+corrections:
+  reach_cap_percentile: 99        # per source-day, on log1p(reach)
+  author_max_items_per_day: 5
+  dedup_title_jaccard: 0.8        # near-duplicate collapse within source-day
+  syndication_cluster_once: true  # collapsed cluster counts once for opinion
+
+combine:
+  source_max_lens_weight: 0.40    # no source may exceed 40% of a lens
+  bias_terms: "PRIOR_ZERO"        # b_i = 0 until calibrated against survey anchors
+  identification: "lambda_fixed_to_first_source_per_lens"  # scale identification constraint
+  provisional_band_multiplier: 2.0  # uncertainty bands widened while bias terms are priors
+  min_lens_coverage: 0.60         # lens published only if >=60% of its sources reported
+  lens_weights:
+    societal:  { public: 0.45, media: 0.25, business: 0.15, technical: 0.15 }
+    investor:  { public: 0.30, media: 0.15, business: 0.40, technical: 0.15 }
+
+company_scores:
+  window_days: 7                  # rolling window for company n_eff
+  min_n_eff: 50                   # below -> LOW_CONFIDENCE (labelled, not hidden)
+  min_lenses: 2
+
+alerts:
+  sigma_move: 2.0                 # vs 90-day baseline (inactive until history exists: THIN)
+  baseline_days: 90
+  divergence_percentile: 95
+
+scale:
+  direction_min: -2
+  direction_max: 2                # display rescale: (d + 2) / 4 * 100
+
+sources:
+  gdelt:      { lens: media,     enabled: true }
+  gdelt_biz:  { lens: business,  enabled: true }   # GDELT restricted to financial-press domains
+  hackernews: { lens: technical, enabled: true }
+  bluesky:    { lens: public,    enabled: true }   # sandbox TLS-blocks it; runs on GitHub Actions
+  reddit:     { lens: public,    enabled: true }   # needs OAuth creds or public-JSON access; terms review pending

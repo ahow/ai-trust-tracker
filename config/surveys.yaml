@@ -1,0 +1,91 @@
+# Survey anchors — free published waves, manually entered (one hour per wave).
+# These are the ONLY level anchors. metric_family groups comparable questions;
+# provider_effect delta is estimated per provider once >=2 waves exist.
+# Values verified against primary sources on 2026-11-24 (see urls).
+anchors:
+  - id: edelman-flash-2025-us
+    provider: Edelman
+    wave: "2025 Trust Barometer Flash Poll: Trust and AI at a Crossroads"
+    fieldwork_end: "2025-10-27"
+    geo: US
+    metric_family: trust-in-ai        # "I trust artificial intelligence", 9-pt top-4 box
+    question: "TEC_TRU_AI: How much do you trust the below technology? — artificial intelligence"
+    value: 32
+    scale: "0-100 (percent trust)"
+    lens: public
+    url: "https://www.edelman.com/trust/2025/trust-barometer/flash-poll-trust-artifical-intelligence"
+  - id: edelman-flash-2025-uk
+    provider: Edelman
+    wave: "2025 Trust Barometer Flash Poll: Trust and AI at a Crossroads"
+    fieldwork_end: "2025-10-27"
+    geo: UK
+    metric_family: trust-in-ai
+    value: 36
+    scale: "0-100 (percent trust)"
+    lens: public
+    url: "https://www.edelman.com/trust/2025/trust-barometer/flash-poll-trust-artifical-intelligence"
+  - id: edelman-flash-2025-de
+    provider: Edelman
+    wave: "2025 Trust Barometer Flash Poll: Trust and AI at a Crossroads"
+    fieldwork_end: "2025-10-27"
+    geo: DE
+    metric_family: trust-in-ai
+    value: 39
+    scale: "0-100 (percent trust)"
+    lens: public
+    url: "https://www.edelman.com/trust/2025/trust-barometer/flash-poll-trust-artifical-intelligence"
+  - id: edelman-flash-2025-br
+    provider: Edelman
+    wave: "2025 Trust Barometer Flash Poll: Trust and AI at a Crossroads"
+    fieldwork_end: "2025-10-27"
+    geo: BR
+    metric_family: trust-in-ai
+    value: 67
+    scale: "0-100 (percent trust)"
+    lens: public
+    url: "https://www.edelman.com/trust/2025/trust-barometer/flash-poll-trust-artifical-intelligence"
+  - id: edelman-flash-2025-cn
+    provider: Edelman
+    wave: "2025 Trust Barometer Flash Poll: Trust and AI at a Crossroads"
+    fieldwork_end: "2025-10-27"
+    geo: CN
+    metric_family: trust-in-ai
+    value: 87
+    scale: "0-100 (percent trust)"
+    lens: public
+    url: "https://www.edelman.com/trust/2025/trust-barometer/flash-poll-trust-artifical-intelligence"
+  - id: ipsos-aimonitor-2025-global
+    provider: Ipsos (AI Monitor, via Stanford AI Index 2026 ch.9)
+    wave: "Ipsos AI Monitor 2025"
+    fieldwork_end: "2025-04-04"
+    geo: GLOBAL_30
+    metric_family: benefits-outweigh  # NOT the same question as Edelman; separate family
+    question: "Products and services using AI have more benefits than drawbacks (% agree)"
+    value: 59
+    scale: "0-100 (percent agree)"
+    lens: public
+    url: "https://hai.stanford.edu/ai-index/2026-ai-index-report/public-opinion"
+  - id: ipsos-aimonitor-2024-global
+    provider: Ipsos (AI Monitor, via Stanford AI Index 2026 ch.9)
+    wave: "Ipsos AI Monitor 2024"
+    fieldwork_end: "2024-12-31"
+    geo: GLOBAL_30
+    metric_family: benefits-outweigh
+    value: 55
+    scale: "0-100 (percent agree)"
+    lens: public
+    url: "https://hai.stanford.edu/ai-index/2026-ai-index-report/public-opinion"
+  - id: pew-2025-regulate-us
+    provider: Pew Research (25-country, via Stanford AI Index 2026 ch.9)
+    wave: "Pew 2025 AI regulation survey"
+    fieldwork_end: "2025-12-31"
+    geo: US
+    metric_family: regulator-trust    # trust in own government to regulate AI effectively
+    value: 37
+    scale: "0-100 (percent trust)"
+    lens: public
+    url: "https://hai.stanford.edu/ai-index/2026-ai-index-report/public-opinion"
+notes:
+  - "Survey-gap metric is computed ONLY within a metric_family; cross-family comparisons are invalid."
+  - "Next expected waves: Edelman Trust Barometer (Jan 2027), Ipsos AI Monitor (spring 2027), Pew (ongoing)."
+  - "Anchor scarcity: ~6-8 usable anchor points/year. Bias terms stay PROVISIONAL for 12-18 months."
