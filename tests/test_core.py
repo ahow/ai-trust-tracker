@@ -1,7 +1,7 @@
-"""Tests: rubric, aggregate, combine. Run: python3 -m pytest tests/ -q"""
+"""Tests: rubric, aggregate, combine, collectors. Run: python3 -m pytest tests/ -q"""
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-import rubric, aggregate, combine
+import rubric, aggregate, combine, collectors
 
 # ---------------------------------------------------------------- rubric
 def test_positive_trust():
@@ -99,3 +99,19 @@ def test_survey_gap_same_family_only():
 
 def test_rescale_bounds():
     assert combine.to_100(-2) == 0 and combine.to_100(2) == 100
+
+# ---------------------------------------------------------------- collectors
+def test_parse_timeline():
+    payload = {"timeline": [
+        {"data": [{"date": "20261125000000", "value": -1.23},
+                  {"date": "20261125010000", "value": -1.10}]},
+        {"data": [{"date": "20261125020000", "value": 0.5}]},
+    ]}
+    pts = collectors.parse_timeline(payload)
+    assert len(pts) == 3
+    assert pts[0] == {"date": "20261125000000", "value": -1.23}
+    assert pts[-1]["value"] == 0.5
+
+def test_parse_timeline_empty_and_malformed():
+    assert collectors.parse_timeline({}) == []
+    assert collectors.parse_timeline({"timeline": [{"data": []}]}) == []

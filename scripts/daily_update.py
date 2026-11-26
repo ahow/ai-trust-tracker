@@ -16,7 +16,7 @@ def load_cfg(name):
     with open(os.path.join(ROOT, "config", name)) as f:
         return yaml.safe_load(f)
 
-def run(day=None, timespan="1d", reuse=False):
+def run(day=None, timespan="1d", reuse=False, timelines=True):
     day = day or datetime.datetime.now(datetime.UTC).date().isoformat()
     params = load_cfg("parameters.yaml")
     companies = load_cfg("companies.yaml")["companies"]
@@ -48,6 +48,23 @@ def run(day=None, timespan="1d", reuse=False):
             print(f"  [{source:11s}] {status:11s} {len(items):4d} items  {detail[:80]}")
             all_items.extend(items)
     con.commit()
+
+    # 1b. GDELT native timeline series (tone + full-coverage volume) ----------
+    if not reuse and timelines and params["sources"].get("gdelt", {}).get("enabled", True):
+        try:
+            from collectors import collect_gdelt_timelines
+            trows, tstatus, tdetail = collect_gdelt_timelines(day=day, timespan=timespan)
+            for r in trows:
+                con.execute("INSERT OR REPLACE INTO timeline_daily VALUES (?,?,?,?,?,?)",
+                            (r["day"], r["source"], r["scope"], r["avg_tone"],
+                             r["article_count"], json.dumps(r.get("raw", {}))[:20000]))
+            store.set_status(con, day, "gdelt_timeline", tstatus, tdetail,
+                             sum(r["article_count"] for r in trows))
+            print(f"  [{'gdelt_tl':11s}] {tstatus:11s} {tdetail[:80]}")
+            con.commit()
+        except Exception as e:
+            store.set_status(con, day, "gdelt_timeline", "error", str(e)[:200])
+            con.commit()
 
     # 2. score + gate --------------------------------------------------------
     gated = []
@@ -185,4 +202,6 @@ if __name__ == "__main__":
         kw["timespan"] = args[args.index("--timespan") + 1]
     if "--reuse" in args:
         kw["reuse"] = True
+    if "--no-timelines" in args:
+        kw["timelines"] = False
     run(**kw)
