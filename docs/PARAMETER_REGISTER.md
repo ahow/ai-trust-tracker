@@ -1,4 +1,4 @@
-# Parameter Register — AI Trust Tracker v0.1.0
+# Parameter Register — AI Trust Tracker v0.2.0
 
 Every tunable, its role, its status (PRIOR = uncalibrated starting value),
 and where it lives. Calibration changes arrive as proposals and are merged
@@ -64,3 +64,11 @@ wmean = −0.18, se = 0.07, n_eff = 189:
 
 - v0.1.0 (2026-11-24): initial register. All parameters PRIOR except lens
   weights (CHOICE). No calibrated values yet.
+- v0.2.0 (2026-11-26): GDELT playbook upgrades. Timeline modes added
+  (`timelinetone`, `timelinevolraw` — server-side over full coverage, no
+  250-record ArtList cap) stored in `timeline_daily` and charted on the
+  dashboard; ArtList queries use `sort=dateasc`; 429 backoff lengthened
+  (20 s doubling). Dashboard gains Trend section (composite band + per-lens
+  lines + GDELT tone panel) and per-company score-history sparklines.
+  Tone is a word-list measure with a known negative lean — read day-to-day
+  change, never the level. No parameter values changed.

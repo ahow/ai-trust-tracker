@@ -35,7 +35,7 @@ src/aggregate.py         dedup, reach caps, author caps, weighted series
 src/combine.py           lens blending, composite, survey gap
 scripts/daily_update.py  collect → score → correct → aggregate → combine
 scripts/build_dashboard.py  static docs/index.html (GitHub Pages-ready)
-tests/test_core.py       16 tests
+tests/test_core.py       18 tests
 ```
 
 ## Run
@@ -43,9 +43,14 @@ tests/test_core.py       16 tests
 ```bash
 python3 scripts/daily_update.py              # collect today + score + combine
 python3 scripts/daily_update.py --reuse      # re-run pipeline on stored items
+python3 scripts/daily_update.py --no-timelines  # skip GDELT timeline modes
 python3 scripts/build_dashboard.py           # -> docs/index.html
 python3 -m pytest tests/ -q
 ```
+
+The dashboard shows field-level lens cards, a Trend section (composite band,
+per-lens lines, GDELT native tone panel — word-list measure, read day-to-day
+change only), and per-company score-history sparklines in each drill-down.
 
 ## Known limitations (v0, stated not hidden)
 
