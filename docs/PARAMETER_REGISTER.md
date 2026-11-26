@@ -1,4 +1,4 @@
-# Parameter Register — AI Trust Tracker v0.2.0
+# Parameter Register — AI Trust Tracker v0.2.1
 
 Every tunable, its role, its status (PRIOR = uncalibrated starting value),
 and where it lives. Calibration changes arrive as proposals and are merged
@@ -72,3 +72,6 @@ wmean = −0.18, se = 0.07, n_eff = 189:
   lines + GDELT tone panel) and per-company score-history sparklines.
   Tone is a word-list measure with a known negative lean — read day-to-day
   change, never the level. No parameter values changed.
+- v0.2.1 (2026-11-26): robustness — GDELT serves HTTP 200 with a plain-text
+  error body under load; non-JSON 200s now retry with the same backoff as 429
+  (observed live on the CI runner). No parameter values changed.

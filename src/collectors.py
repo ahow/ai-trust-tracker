@@ -23,7 +23,9 @@ GDELT_BIZ_DOMAINS = ["reuters.com", "bloomberg.com", "ft.com", "cnbc.com",
                      "marketwatch.com", "businessinsider.com", "fortune.com", "finance.yahoo.com"]
 
 def _gdelt_query(query, timespan="1d", maxrecords=250, retries=4):
-    """GDELT rate-limits to 1 req / 5s; shared IPs may see 429 -> long backoff."""
+    """GDELT rate-limits to 1 req / 5s; shared IPs may see 429 -> long backoff.
+    GDELT also serves HTTP 200 with a plain-text error body under load — treat
+    any non-JSON 200 as retryable, identical to a 429."""
     params = {"query": query, "mode": "ArtList", "maxrecords": maxrecords,
               "format": "json", "timespan": timespan, "sort": "dateasc"}
     wait = 20
@@ -31,7 +33,7 @@ def _gdelt_query(query, timespan="1d", maxrecords=250, retries=4):
         r = requests.get(GDELT_API, params=params, headers=UA, timeout=TIMEOUT)
         if r.status_code == 200 and r.text.strip().startswith("{"):
             return r.json().get("articles", [])
-        if r.status_code == 429 and attempt < retries - 1:
+        if r.status_code in (200, 429, 502, 503) and attempt < retries - 1:
             time.sleep(wait); wait *= 2; continue
         raise RuntimeError(f"GDELT HTTP {r.status_code}: {r.text[:120]}")
     return []
@@ -53,9 +55,9 @@ def _gdelt_timeline(query, mode, timespan="1d", retries=4):
         r = requests.get(GDELT_API, params=params, headers=UA, timeout=TIMEOUT)
         if r.status_code == 200 and r.text.strip().startswith("{"):
             return parse_timeline(r.json())
-        if r.status_code == 429 and attempt < retries - 1:
+        if r.status_code in (200, 429, 502, 503) and attempt < retries - 1:
             time.sleep(wait); wait *= 2; continue
-        raise RuntimeError(f"GDELT {mode} HTTP {r.status_code}")
+        raise RuntimeError(f"GDELT {mode} HTTP {r.status_code}: {r.text[:120]}")
     return []
 
 def collect_gdelt_timelines(day=None, timespan="1d"):
