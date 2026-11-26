@@ -126,7 +126,7 @@ function trend(){
     s2+=`<text x="${X2(tlDays.length-1)-60}" y="${H2-4}" fill="#8b94a1" font-size="10">${tlDays[tlDays.length-1]}</text>`;
     s2+='</svg>';
     const tleg=Object.keys(bySrc).map(s=>`<span style="color:${tcol[s]||'#888'}">— ${s==='gdelt'?'all media':'financial press'}</span>`).join(' · ');
-    tlHtml='<div class="mut" style="font-size:12px;margin-top:8px"><b>GDELT native tone</b> (server-side, full coverage — word-list measure with a known negative lean: read day-to-day change, never the level) '+tleg+'</div>'+s2;
+    tlHtml='<div class="mut" style="font-size:12px;margin-top:8px"><b>GDELT tone</b> (raw GKG files, full coverage — word-list measure with a known negative lean: read day-to-day change, never the level) '+tleg+'</div>'+s2;
   } else if(tl.length===1){
     tlHtml='<div class="mut" style="font-size:12px;margin-top:4px">GDELT native tone (word-list — use day-to-day change, never the level): latest '
       +tl[tl.length-1].tone+' on '+(tl[tl.length-1].n||0).toLocaleString()+' articles</div>';
@@ -143,7 +143,7 @@ function render(){
     <div class="kpi"><div class="v">${D.investor?.value??'—'}</div>
       <div class="l">Investor view composite</div></div>
     <div class="kpi"><div class="v">${D.survey_gap?D.survey_gap.gap.toFixed(1):'—'}</div>
-      <div class="l">Survey gap: discourse vs ${esc(D.survey_gap?.anchor_id||'')} (${D.survey_gap?.anchor_geo||''}, ${D.survey_gap?.anchor_value??'—'})<br><b>INDICATIVE — uncalibrated, b=0 priors</b></div></div>
+      <div class="l">Survey gap: discourse vs ${esc(D.survey_gap?.anchor_id||'')} (${esc(D.survey_gap?.anchor_geo||'')}, ${D.survey_gap?.anchor_value??'—'})<br><b>INDICATIVE — uncalibrated, b=0 priors</b></div></div>
     <div class="kpi"><div class="v">${D.n_items}</div>
       <div class="l">Items scored ${esc(D.day)}</div></div>`;
   document.getElementById('lenses').innerHTML=D.lenses.map(lensCard).join('');
@@ -284,7 +284,9 @@ LLM rubric replaces it after κ≥0.7 validation). Direction −2..+2 rescaled t
 Within-lens: inverse-variance weights, 40% source cap. Composite: stated lens weights
 (societal default). Bands widened ×2 while bias terms are uncalibrated priors.
 Company scores need n_eff≥50 over 7 days and ≥2 lenses, else LOW CONF — shown, not hidden.
-Full parameter register in docs/PARAMETER_REGISTER.md.</div>
+GDELT data comes from raw GKG files since v0.3.0 (DOC API unusable); media/business volume
+and tone break comparability at the switchover, and backfilled days cover media+business
+lenses only. Full parameter register in docs/PARAMETER_REGISTER.md.</div>
 </div><script>window.__DATA__={json.dumps(data)};</script><script>{JS}</script>
 </body></html>"""
     out = os.path.join(ROOT, "docs", "index.html")

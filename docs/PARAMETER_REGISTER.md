@@ -1,4 +1,4 @@
-# Parameter Register — AI Trust Tracker v0.2.1
+# Parameter Register — AI Trust Tracker v0.3.0
 
 Every tunable, its role, its status (PRIOR = uncalibrated starting value),
 and where it lives. Calibration changes arrive as proposals and are merged
@@ -75,3 +75,36 @@ wmean = −0.18, se = 0.07, n_eff = 189:
 - v0.2.1 (2026-11-26): robustness — GDELT serves HTTP 200 with a plain-text
   error body under load; non-JSON 200s now retry with the same backoff as 429
   (observed live on the CI runner). No parameter values changed.
+- v0.3.0 (2026-11-26): **GDELT source switch — DOC API replaced by raw GKG
+  files (Route B).** The DOC API hard-429s every IP class tested (sandbox,
+  GitHub Actions runners, rotating residential proxies — 7/7 attempts across
+  ≥4 residential exits, UA-independent, 2026-11-26), while the GKG file host
+  serves the same blocked IPs without restriction. GKG is the underlying
+  dataset: 15-minute batches, one row per article, with URL, domain,
+  PAGE_TITLE, V2Tone (we use tone + word count), themes and entities.
+  Consequences, stated not hidden:
+  - **Match terms widened** (filtering is local and free; the relevance gate
+    downstream drops passing mentions). Full list, matched case-insensitive
+    with word boundaries over URL/title/themes/persons/organisations/names:
+    artificial intelligence · chatgpt · openai · generative ai · ai safety ·
+    anthropic · large language model(s) · llm(s) · deepseek · grok ·
+    mistral ai · copilot · ai regulation · ai chatbot(s). Ambiguous tokens
+    excluded deliberately: "claude", "gemini" alone (person/astronomy
+    collisions).
+  - **Method break:** GKG matching is title/URL/entity-based, not the DOC
+    API's full-text index; volumes and tone levels are NOT comparable across
+    the switchover. GKG tone series starts fresh 2026-11-26; deltas only, as
+    before.
+  - **Tone aggregation moves client-side:** hourly word-count-weighted mean
+    of V2Tone (was: GDELT server-side timelinetone). `timeline_daily` schema
+    unchanged; raw_json carries the hourly tone/volume points.
+  - **Volume cap removed:** no 250-record ArtList cap; volume = everything
+    GDELT saw matching the terms (~26h window ≈ 104 batches ≈ 500 MB/day on
+    the runner; free on public repos).
+  - DOC API code kept dormant; `GDELT_DOC_API=1` re-enables it.
+  - Optional proxy support (`EVOMI_PROXY_URL`) added for GDELT calls, tested
+    and found NOT to fix the DOC API block; dormant (unset = direct).
+  - `scripts/backfill_gkg.py` + `backfill.yml` (manual dispatch): budget-
+    bounded historical backfill, oldest-missing-day-first, safe to re-run.
+    Backfilled days carry media + business lenses only.
+  No parameter values changed.
