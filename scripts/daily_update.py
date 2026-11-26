@@ -1,12 +1,14 @@
 """Daily update: collect -> score -> correct -> aggregate -> combine -> store.
-Run:  python3 scripts/daily_update.py [--day YYYY-MM-DD] [--timespan 1d] [--reuse]
+Run:  python3 scripts/daily_update.py [--day YYYY-MM-DD] [--reuse]
+      [--gkg-hours N] [--gkg-end YYYY-MM-DD]   (GKG window control, for backfill)
+      [--only-gdelt]                            (backfill: skip live-only sources)
 """
 import sys, os, datetime, json
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import yaml
-import store, rubric, aggregate, combine
+import store, rubric, aggregate, combine, collectors
 from collectors import COLLECTORS
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
@@ -16,7 +18,8 @@ def load_cfg(name):
     with open(os.path.join(ROOT, "config", name)) as f:
         return yaml.safe_load(f)
 
-def run(day=None, timespan="1d", reuse=False, timelines=True):
+def run(day=None, timespan="1d", reuse=False, timelines=True,
+        gkg_hours=26, gkg_end=None, only_gdelt=False):
     day = day or datetime.datetime.now(datetime.UTC).date().isoformat()
     params = load_cfg("parameters.yaml")
     companies = load_cfg("companies.yaml")["companies"]
@@ -36,35 +39,36 @@ def run(day=None, timespan="1d", reuse=False, timelines=True):
         all_items = [dict(zip(keys, r)) for r in rows]
         print(f"  reusing {len(all_items)} stored items for {day}")
     else:
-        for source, fn in COLLECTORS.items():
-            if not params["sources"].get(source, {}).get("enabled", True):
-                store.set_status(con, day, source, "disabled")
-                continue
-            kwargs = {"day": day}
-            if source == "gdelt":
-                kwargs["timespan"] = timespan
-            items, status, detail = fn(**kwargs)
-            store.set_status(con, day, source, status, detail, len(items))
-            print(f"  [{source:11s}] {status:11s} {len(items):4d} items  {detail[:80]}")
-            all_items.extend(items)
+        if not only_gdelt:
+            for source, fn in COLLECTORS.items():
+                if not params["sources"].get(source, {}).get("enabled", True):
+                    store.set_status(con, day, source, "disabled")
+                    continue
+                items, status, detail = fn(day=day)
+                store.set_status(con, day, source, status, detail, len(items))
+                print(f"  [{source:11s}] {status:11s} {len(items):4d} items  {detail[:80]}")
+                all_items.extend(items)
+        # GDELT via raw GKG files: one pass yields items AND timeline rows
+        # (Route B, v0.3.0 — DOC API path dormant behind GDELT_DOC_API=1).
+        if params["sources"].get("gdelt", {}).get("enabled", True):
+            end_dt = (datetime.datetime.fromisoformat(gkg_end)
+                      .replace(tzinfo=datetime.UTC) if gkg_end else None)
+            g_items, tl_rows, gstatus, gdetail = collectors.collect_gdelt(
+                day=day, hours=gkg_hours, end=end_dt)
+            store.set_status(con, day, "gdelt", gstatus, gdetail, len(g_items))
+            print(f"  [{'gdelt':11s}] {gstatus:11s} {len(g_items):4d} items  {gdetail[:80]}")
+            all_items.extend(g_items)
+            if timelines:
+                for r in tl_rows:
+                    con.execute("INSERT OR REPLACE INTO timeline_daily VALUES (?,?,?,?,?,?)",
+                                (r["day"], r["source"], r["scope"], r["avg_tone"],
+                                 r["article_count"], json.dumps(r.get("raw", {}))[:20000]))
+                store.set_status(con, day, "gdelt_timeline",
+                                 gstatus if tl_rows and gstatus == "ok" else
+                                 ("empty" if gstatus == "ok" else gstatus),
+                                 gdetail, sum(r["article_count"] for r in tl_rows))
+                print(f"  [{'gdelt_tl':11s}] {gstatus:11s} {gdetail[:80]}")
     con.commit()
-
-    # 1b. GDELT native timeline series (tone + full-coverage volume) ----------
-    if not reuse and timelines and params["sources"].get("gdelt", {}).get("enabled", True):
-        try:
-            from collectors import collect_gdelt_timelines
-            trows, tstatus, tdetail = collect_gdelt_timelines(day=day, timespan=timespan)
-            for r in trows:
-                con.execute("INSERT OR REPLACE INTO timeline_daily VALUES (?,?,?,?,?,?)",
-                            (r["day"], r["source"], r["scope"], r["avg_tone"],
-                             r["article_count"], json.dumps(r.get("raw", {}))[:20000]))
-            store.set_status(con, day, "gdelt_timeline", tstatus, tdetail,
-                             sum(r["article_count"] for r in trows))
-            print(f"  [{'gdelt_tl':11s}] {tstatus:11s} {tdetail[:80]}")
-            con.commit()
-        except Exception as e:
-            store.set_status(con, day, "gdelt_timeline", "error", str(e)[:200])
-            con.commit()
 
     # 2. score + gate --------------------------------------------------------
     gated = []
@@ -198,10 +202,17 @@ if __name__ == "__main__":
     kw = {}
     if "--day" in args:
         kw["day"] = args[args.index("--day") + 1]
-    if "--timespan" in args:
-        kw["timespan"] = args[args.index("--timespan") + 1]
+    if "--gkg-hours" in args:
+        kw["gkg_hours"] = int(args[args.index("--gkg-hours") + 1])
+    if "--gkg-end" in args:
+        # anchor the GKG window at END of this UTC day (backfill mode)
+        d = args[args.index("--gkg-end") + 1]
+        kw["gkg_end"] = (datetime.date.fromisoformat(d) +
+                         datetime.timedelta(days=1)).isoformat() + "T00:00:00"
     if "--reuse" in args:
         kw["reuse"] = True
+    if "--only-gdelt" in args:
+        kw["only_gdelt"] = True
     if "--no-timelines" in args:
         kw["timelines"] = False
     run(**kw)

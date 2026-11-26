@@ -2,7 +2,7 @@
 Sources fail soft — the pipeline records source_status and continues; the lens
 coverage rule in combine.py decides whether a lens publishes without them.
 """
-import requests, hashlib, time, datetime, os
+import requests, hashlib, time, datetime, os, re, io, zipfile, html
 
 UA = {"User-Agent": "ai-trust-tracker/0.1 (research; contact: local user)"}
 TIMEOUT = 40
@@ -22,6 +22,16 @@ GDELT_FIELD_Q = '("artificial intelligence" OR chatgpt OR "generative ai" OR ope
 GDELT_BIZ_DOMAINS = ["reuters.com", "bloomberg.com", "ft.com", "cnbc.com",
                      "marketwatch.com", "businessinsider.com", "fortune.com", "finance.yahoo.com"]
 
+def _proxies():
+    """Optional proxy for GDELT calls ONLY. GDELT reputation-blocks shared
+    datacenter IPs (GitHub Actions runners, sandboxes) with hard 429s that
+    in-run backoff cannot fix; routing via a residential proxy evades the
+    block. Set EVOMI_PROXY_URL="http://user:pass@host:port" as a CI secret /
+    env var — never in git. Other sources stay direct (no bandwidth cost).
+    Rate discipline (1 req / 5 s) applies unchanged through the proxy."""
+    url = os.environ.get("EVOMI_PROXY_URL")
+    return {"http": url, "https": url} if url else None
+
 def _gdelt_query(query, timespan="1d", maxrecords=250, retries=4):
     """GDELT rate-limits to 1 req / 5s; shared IPs may see 429 -> long backoff.
     GDELT also serves HTTP 200 with a plain-text error body under load — treat
@@ -30,7 +40,8 @@ def _gdelt_query(query, timespan="1d", maxrecords=250, retries=4):
               "format": "json", "timespan": timespan, "sort": "dateasc"}
     wait = 20
     for attempt in range(retries):
-        r = requests.get(GDELT_API, params=params, headers=UA, timeout=TIMEOUT)
+        r = requests.get(GDELT_API, params=params, headers=UA, timeout=TIMEOUT,
+                         proxies=_proxies())
         if r.status_code == 200 and r.text.strip().startswith("{"):
             return r.json().get("articles", [])
         if r.status_code in (200, 429, 502, 503) and attempt < retries - 1:
@@ -52,7 +63,8 @@ def _gdelt_timeline(query, mode, timespan="1d", retries=4):
     params = {"query": query, "mode": mode, "format": "json", "timespan": timespan}
     wait = 20
     for attempt in range(retries):
-        r = requests.get(GDELT_API, params=params, headers=UA, timeout=TIMEOUT)
+        r = requests.get(GDELT_API, params=params, headers=UA, timeout=TIMEOUT,
+                         proxies=_proxies())
         if r.status_code == 200 and r.text.strip().startswith("{"):
             return parse_timeline(r.json())
         if r.status_code in (200, 429, 502, 503) and attempt < retries - 1:
@@ -102,17 +114,150 @@ def _gdelt_items(articles, source, lens, day):
         })
     return items
 
-def collect_gdelt(day=None, timespan="1d"):
+def _collect_gdelt_docapi(day=None, hours=26):
+    """DORMANT Route A (DOC API). As of 2026-11 the DOC API hard-429s every IP
+    class tested: sandbox, GitHub Actions runners, and rotating residential
+    proxies (7/7 attempts, browser UA included). Re-enable with GDELT_DOC_API=1
+    if the API recovers. Returns (items, timeline_rows, status, detail)."""
     day = _day(day)
+    timespan = f"{hours}h"
     try:
         arts = _gdelt_query(GDELT_FIELD_Q, timespan)
         time.sleep(6)  # respect 1 req / 5 s
         biz_q = GDELT_FIELD_Q + " (" + " OR ".join(f"domain:{d}" for d in GDELT_BIZ_DOMAINS) + ")"
         biz = _gdelt_query(biz_q, timespan, maxrecords=150)
         items = _gdelt_items(arts, "gdelt", "media", day) + _gdelt_items(biz, "gdelt_biz", "business", day)
-        return items, ("ok" if items else "empty"), f"{len(arts)} media + {len(biz)} business articles"
+        time.sleep(6)
+        tl_rows, _, _ = collect_gdelt_timelines(day=day, timespan=timespan)
+        return items, tl_rows, ("ok" if items else "empty"), \
+            f"{len(arts)} media + {len(biz)} business articles (DOC API)"
     except Exception as e:
-        return [], "unavailable", str(e)[:200]
+        return [], [], "unavailable", str(e)[:200]
+
+# ------------------------------------------- GDELT raw GKG files (Route B)
+# The GKG is GDELT's underlying dataset: the world's news in 15-minute batches,
+# one row per article with extracted URL/domain/title/themes/tone. The file
+# host (data.gdeltproject.org) does NOT rate-limit like the DOC API — verified
+# 2026-11-26 from IPs the API hard-blocks. We download batches and filter
+# locally. No 250-record cap; volume = everything GDELT saw.
+GKG_BASE = "https://data.gdeltproject.org/gdeltv2/"
+# Match terms, case-insensitive, word-boundary. Wider than the old DOC field
+# query because local filtering is free; the relevance gate downstream drops
+# passing mentions. Avoid ambiguous tokens ("claude", "gemini" alone).
+GKG_TERMS = [
+    r"artificial intelligence", r"chatgpt", r"openai", r"generative ai",
+    r"ai safety", r"anthropic", r"large language models?", r"llms?",
+    r"deepseek", r"grok", r"mistral ai", r"copilot", r"ai regulation",
+    r"ai chatbots?",
+]
+_GKG_RE = re.compile(r"\b(?:" + "|".join(GKG_TERMS) + r")\b", re.I)
+_GKG_TITLE_RE = re.compile(r"<PAGE_TITLE>(.*?)</PAGE_TITLE>", re.S)
+
+def _gkg_batch_times(hours, end=None):
+    """15-min batch timestamps covering `hours` back from `end` (default now),
+    latest first. Batch T covers [T-15min, T), so for an exact day window pass
+    end=next-midnight and hours=24. Missing batches 404 and are skipped."""
+    end = end or datetime.datetime.now(datetime.UTC)
+    end = end.replace(minute=(end.minute // 15) * 15, second=0, microsecond=0)
+    n = (hours * 60) // 15
+    return [end - datetime.timedelta(minutes=15 * i) for i in range(1, n + 1)]
+
+def _gkg_parse_batch(content):
+    """Parse one .gkg.csv.zip -> list of AI-relevant records (dicts)."""
+    recs = []
+    with zipfile.ZipFile(io.BytesIO(content)) as z:
+        with z.open(z.namelist()[0]) as f:
+            for line in f.read().decode("utf-8", "replace").splitlines():
+                r = line.split("\t")
+                if len(r) < 27:
+                    continue
+                hay = " ".join((r[4], r[7], r[11], r[13], r[23], r[26]))
+                if not _GKG_RE.search(hay):
+                    continue
+                m = _GKG_TITLE_RE.search(r[26])
+                title = html.unescape(m.group(1)).strip() if m else ""
+                tone = wc = None
+                try:
+                    tp = r[15].split(",")
+                    tone, wc = float(tp[0]), float(tp[6])
+                except (ValueError, IndexError):
+                    pass
+                ts = r[1]  # V2.1DATE: YYYYMMDDHHMMSS (when GDELT saw it)
+                pub = (f"{ts[0:4]}-{ts[4:6]}-{ts[6:8]}T{ts[8:10]}:{ts[10:12]}:{ts[12:14]}Z"
+                       if len(ts) == 14 else None)
+                recs.append({"url": r[4], "domain": (r[3] or "").lower(),
+                             "title": title, "tone": tone, "wc": wc,
+                             "published_utc": pub, "gkg_date": ts})
+    return recs
+
+def collect_gdelt(day=None, hours=26, end=None):
+    """GDELT via raw GKG files: one pass yields media/business items AND
+    hourly tone/volume rows for timeline_daily. Set GDELT_DOC_API=1 for the
+    dormant DOC API path. Returns (items, timeline_rows, status, detail)."""
+    if os.environ.get("GDELT_DOC_API"):
+        return _collect_gdelt_docapi(day=day, hours=hours)
+    day = _day(day)
+    seen, recs, fetched = set(), [], 0
+    try:
+        for ts in _gkg_batch_times(hours, end):
+            url = GKG_BASE + ts.strftime("%Y%m%d%H%M%S") + ".gkg.csv.zip"
+            try:
+                r = requests.get(url, headers=UA, timeout=90, proxies=_proxies())
+            except requests.RequestException:
+                continue                      # transient network error: skip batch
+            if r.status_code != 200:          # 404 = batch not published yet (GKG lags ~1h)
+                continue
+            fetched += 1
+            for rec in _gkg_parse_batch(r.content):
+                if rec["url"] and rec["url"] not in seen:
+                    seen.add(rec["url"])
+                    recs.append(rec)
+            time.sleep(0.3)                   # polite pacing on the file host
+    except Exception as e:
+        return [], [], "unavailable", str(e)[:200]
+    # items: media = all titled recs; business = titled recs from biz domains
+    items = []
+    for rec in recs:
+        if not rec["title"]:
+            continue                          # untitled rows still count toward tone/volume
+        for source, lens in (("gdelt", "media"),) + \
+                ((("gdelt_biz", "business"),) if rec["domain"] in GDELT_BIZ_DOMAINS else ()):
+            items.append({
+                "item_id": _id(source, rec["url"]),
+                "source": source, "lens": lens,
+                "url": rec["url"], "title": rec["title"][:400],
+                "text": rec["title"],
+                "author_hash": _ah(rec["domain"]), "author_type": "journalist",
+                "country": None, "language": "en",
+                "reach": 1,  # GKG gives no audience figures; outlet = 1 voice
+                "published_utc": rec["published_utc"], "day": day,
+                "raw": {"domain": rec["domain"], "tone": rec["tone"],
+                        "wc": rec["wc"], "gkg_date": rec["gkg_date"]},
+            })
+    # timeline rows: hourly word-count-weighted tone + volume, per scope
+    tl_rows = []
+    for source, subset in (("gdelt", recs),
+                           ("gdelt_biz", [x for x in recs if x["domain"] in GDELT_BIZ_DOMAINS])):
+        hourly = {}
+        for x in subset:
+            if x["tone"] is None or not x["gkg_date"]:
+                continue
+            hk = x["gkg_date"][:10] + "0000"  # hour bucket, YYYYMMDDHHMMSS form
+            w = x["wc"] or 1.0
+            a = hourly.setdefault(hk, [0.0, 0.0, 0])
+            a[0] += x["tone"] * w; a[1] += w; a[2] += 1
+        tot_w = sum(a[1] for a in hourly.values())
+        avg = sum(a[0] for a in hourly.values()) / tot_w if tot_w else None
+        tl_rows.append({"day": day, "source": source, "scope": "field",
+                        "avg_tone": avg, "article_count": len(subset),
+                        "raw": {"tone": [{"date": k, "value": round(v[0] / v[1], 3)}
+                                          for k, v in sorted(hourly.items()) if v[1]],
+                                "vol": [{"date": k, "value": v[2]}
+                                        for k, v in sorted(hourly.items())]}})
+    n_biz = tl_rows[1]["article_count"]
+    detail = (f"{len(recs)} AI-relevant articles ({n_biz} financial press) "
+              f"from {fetched} GKG batches")
+    return items, tl_rows, ("ok" if recs else "empty"), detail
 
 # ------------------------------------------------------- Hacker News (technical)
 def _hn_clean(s):
@@ -249,7 +394,8 @@ def collect_reddit(day=None, hours=26):
         return [], "unavailable", str(e)[:200]
 
 COLLECTORS = {
-    "gdelt": collect_gdelt,
+    # "gdelt" is handled explicitly in daily_update (one GKG pass yields both
+    # items and timeline rows, so it cannot fit the 3-tuple contract).
     "hackernews": collect_hackernews,
     "bluesky": collect_bluesky,
     "reddit": collect_reddit,
