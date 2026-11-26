@@ -23,10 +23,10 @@ GDELT_BIZ_DOMAINS = ["reuters.com", "bloomberg.com", "ft.com", "cnbc.com",
                      "marketwatch.com", "businessinsider.com", "fortune.com", "finance.yahoo.com"]
 
 def _gdelt_query(query, timespan="1d", maxrecords=250, retries=4):
-    """GDELT rate-limits to 1 req / 5s; shared IPs may see 429 -> exponential backoff."""
+    """GDELT rate-limits to 1 req / 5s; shared IPs may see 429 -> long backoff."""
     params = {"query": query, "mode": "ArtList", "maxrecords": maxrecords,
-              "format": "json", "timespan": timespan, "sort": "hybridrel"}
-    wait = 10
+              "format": "json", "timespan": timespan, "sort": "dateasc"}
+    wait = 20
     for attempt in range(retries):
         r = requests.get(GDELT_API, params=params, headers=UA, timeout=TIMEOUT)
         if r.status_code == 200 and r.text.strip().startswith("{"):
@@ -35,6 +35,54 @@ def _gdelt_query(query, timespan="1d", maxrecords=250, retries=4):
             time.sleep(wait); wait *= 2; continue
         raise RuntimeError(f"GDELT HTTP {r.status_code}: {r.text[:120]}")
     return []
+
+def parse_timeline(payload):
+    """Extract [{date, value}] from a GDELT timeline-mode JSON payload."""
+    out = []
+    for series in payload.get("timeline", []):
+        for pt in series.get("data", []):
+            out.append({"date": pt.get("date"), "value": pt.get("value")})
+    return out
+
+def _gdelt_timeline(query, mode, timespan="1d", retries=4):
+    """Timeline modes (TimelineTone / TimelineVolRaw) are computed server-side
+    across ALL matching coverage — no 250-record cap (playbook section 3.1)."""
+    params = {"query": query, "mode": mode, "format": "json", "timespan": timespan}
+    wait = 20
+    for attempt in range(retries):
+        r = requests.get(GDELT_API, params=params, headers=UA, timeout=TIMEOUT)
+        if r.status_code == 200 and r.text.strip().startswith("{"):
+            return parse_timeline(r.json())
+        if r.status_code == 429 and attempt < retries - 1:
+            time.sleep(wait); wait *= 2; continue
+        raise RuntimeError(f"GDELT {mode} HTTP {r.status_code}")
+    return []
+
+def collect_gdelt_timelines(day=None, timespan="1d"):
+    """Native GDELT tone + volume series for the field, media and business scopes.
+    Tone is a word-list measure with a known negative lean — use day-over-day
+    change, never the absolute level (playbook sections 1 and 6)."""
+    day = _day(day)
+    biz_q = GDELT_FIELD_Q + " (" + " OR ".join(f"domain:{d}" for d in GDELT_BIZ_DOMAINS) + ")"
+    rows = []
+    try:
+        for source, q in (("gdelt", GDELT_FIELD_Q), ("gdelt_biz", biz_q)):
+            tone = _gdelt_timeline(q, "timelinetone", timespan)
+            time.sleep(6)
+            vol = _gdelt_timeline(q, "timelinevolraw", timespan)
+            time.sleep(6)
+            tones = {p["date"]: p["value"] for p in tone if p.get("value") is not None}
+            vols = {p["date"]: p["value"] for p in vol if p.get("value") is not None}
+            tot_v = sum(vols.values())
+            avg = (sum(tones.get(d, 0.0) * v for d, v in vols.items()) / tot_v
+                   if tot_v else None)
+            rows.append({"day": day, "source": source, "scope": "field",
+                         "avg_tone": avg, "article_count": int(tot_v),
+                         "raw": {"tone": tone[-48:], "vol": vol[-48:]}})
+        return rows, ("ok" if any(r["article_count"] for r in rows) else "empty"), \
+            f"{sum(r['article_count'] for r in rows)} articles across timelines"
+    except Exception as e:
+        return rows, "unavailable", str(e)[:200]
 
 def _gdelt_items(articles, source, lens, day):
     items = []
@@ -65,6 +113,11 @@ def collect_gdelt(day=None, timespan="1d"):
         return [], "unavailable", str(e)[:200]
 
 # ------------------------------------------------------- Hacker News (technical)
+def _hn_clean(s):
+    """Algolia returns HTML-escaped text with <p>/<i> tags; normalise once."""
+    import html as _h, re as _r
+    return _r.sub(r"\s+", " ", _r.sub(r"<[^>]+>", " ", _h.unescape(s or ""))).strip()
+
 def collect_hackernews(day=None, hours=26):
     day = _day(day)
     try:
@@ -87,8 +140,8 @@ def collect_hackernews(day=None, hours=26):
                     "item_id": _id("hackernews", oid),
                     "source": "hackernews", "lens": "technical",
                     "url": h.get("url") or f"https://news.ycombinator.com/item?id={oid}",
-                    "title": h.get("title") or (h.get("comment_text") or "")[:200],
-                    "text": h.get("comment_text") or h.get("story_text") or h.get("title") or "",
+                    "title": _hn_clean(h.get("title") or (h.get("comment_text") or "")[:400])[:200],
+                    "text": _hn_clean(h.get("comment_text") or h.get("story_text") or h.get("title") or ""),
                     "author_hash": _ah(h.get("author")), "author_type": "developer",
                     "country": None, "language": "en",
                     "reach": h.get("points") or 1,

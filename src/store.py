@@ -90,6 +90,15 @@ CREATE TABLE IF NOT EXISTS source_status (
     n_items INTEGER DEFAULT 0,
     PRIMARY KEY (day, source)
 );
+CREATE TABLE IF NOT EXISTS timeline_daily (
+    day TEXT NOT NULL,
+    source TEXT NOT NULL,            -- gdelt | gdelt_biz
+    scope TEXT NOT NULL,             -- 'field'
+    avg_tone REAL,                   -- GDELT native word-list tone (negative lean: use deltas)
+    article_count INTEGER,           -- volume across ALL matching coverage (no 250 cap)
+    raw_json TEXT,
+    PRIMARY KEY (day, source, scope)
+);
 """
 
 def connect(db_path):
