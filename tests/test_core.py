@@ -115,3 +115,51 @@ def test_parse_timeline():
 def test_parse_timeline_empty_and_malformed():
     assert collectors.parse_timeline({}) == []
     assert collectors.parse_timeline({"timeline": [{"data": []}]}) == []
+
+def test_proxies_env_toggle(monkeypatch):
+    """GDELT proxy is opt-in via EVOMI_PROXY_URL; absent -> direct connection."""
+    monkeypatch.delenv("EVOMI_PROXY_URL", raising=False)
+    assert collectors._proxies() is None
+    monkeypatch.setenv("EVOMI_PROXY_URL", "http://u:p@proxy.example:1000")
+    p = collectors._proxies()
+    assert p == {"http": "http://u:p@proxy.example:1000",
+                 "https": "http://u:p@proxy.example:1000"}
+
+# ---------------------------------------------------------------- GKG (Route B)
+def test_gkg_terms_regex():
+    assert collectors._GKG_RE.search("OpenAI announces new model")
+    assert collectors._GKG_RE.search("Concerns about LLMs in classrooms")
+    assert collectors._GKG_RE.search("EU passes AI regulation")
+    # word boundaries: 'said'/'again'/'climate' must not trip on ai/llm
+    assert not collectors._GKG_RE.search("He said again that climate is key")
+    # ambiguous tokens we deliberately excluded
+    assert not collectors._GKG_RE.search("The Gemini constellation and Claude Shannon")
+
+def test_gkg_batch_times_exact_day():
+    import datetime as dt
+    end = dt.datetime(2026, 11, 21, 0, 0, tzinfo=dt.UTC)
+    ts = collectors._gkg_batch_times(24, end)
+    assert len(ts) == 96                       # 24h x 4 batches
+    assert ts[-1] == dt.datetime(2026, 11, 20, 0, 0, tzinfo=dt.UTC)   # oldest
+    assert ts[0] == dt.datetime(2026, 11, 20, 23, 45, tzinfo=dt.UTC)  # newest
+
+def test_gkg_parse_batch():
+    import io, zipfile
+    fields = ["123456789", "20261126170000", "1", "Reuters.com",
+              "https://reuters.com/tech/openai-trust-2026"]   # 0-4
+    fields += [""] * 10                                       # 5-14
+    fields += ["1.5,3.0,1.5,3.0,10,1,800"]                    # 15 V2Tone
+    fields += [""] * 10                                       # 16-25
+    fields += ["<PAGE_TITLE>OpenAI faces trust questions &#x2014; again</PAGE_TITLE>"]  # 26
+    assert len(fields) == 27
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("20261126170000.gkg.csv",
+                   "\t".join(fields) + "\n" + "\t".join(["x"] * 5) + "\n")
+    recs = collectors._gkg_parse_batch(buf.getvalue())
+    assert len(recs) == 1                      # short row skipped
+    r = recs[0]
+    assert r["title"] == "OpenAI faces trust questions — again"   # HTML-unescaped
+    assert r["tone"] == 1.5 and r["wc"] == 800
+    assert r["published_utc"] == "2026-11-26T17:00:00Z"
+    assert r["domain"] == "reuters.com"

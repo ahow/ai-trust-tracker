@@ -13,7 +13,7 @@ Every series is stored separately; the composite is one view, never the only one
 
 | Source | Lens | Access | Notes |
 | --- | --- | --- | --- |
-| GDELT 2.0 DOC API | Media | Free, no key, 1 req/5s | Two queries/day: field + financial-press domain slice |
+| GDELT 2.0 raw GKG files | Media + Business | Free, no key | 15-min batches downloaded and filtered locally (Route B, v0.3.0). DOC API dormant: hard-429s from every IP class tested — `GDELT_DOC_API=1` re-enables |
 | Hacker News (Algolia) | Technical | Free | Stories + comments, last 26h |
 | Bluesky public search | Public | Free, **live-only** | No history — daily capture is the only option |
 | Reddit | Public | Free tier (OAuth) or public JSON | **Terms review pending**; set `REDDIT_CLIENT_ID/SECRET` |
@@ -35,7 +35,7 @@ src/aggregate.py         dedup, reach caps, author caps, weighted series
 src/combine.py           lens blending, composite, survey gap
 scripts/daily_update.py  collect → score → correct → aggregate → combine
 scripts/build_dashboard.py  static docs/index.html (GitHub Pages-ready)
-tests/test_core.py       18 tests
+tests/test_core.py       22 tests
 ```
 
 ## Run
@@ -43,13 +43,14 @@ tests/test_core.py       18 tests
 ```bash
 python3 scripts/daily_update.py              # collect today + score + combine
 python3 scripts/daily_update.py --reuse      # re-run pipeline on stored items
-python3 scripts/daily_update.py --no-timelines  # skip GDELT timeline modes
+python3 scripts/daily_update.py --no-timelines  # skip writing GDELT tone rows
+python3 scripts/backfill_gkg.py --from 2026-08-28   # history, budget-bounded, re-runnable
 python3 scripts/build_dashboard.py           # -> docs/index.html
-python3 -m pytest tests/ -q
+python3 -m pytest tests/ -q                  # 22 tests
 ```
 
 The dashboard shows field-level lens cards, a Trend section (composite band,
-per-lens lines, GDELT native tone panel — word-list measure, read day-to-day
+per-lens lines, GDELT tone panel — word-list measure, read day-to-day
 change only), and per-company score-history sparklines in each drill-down.
 
 ## Known limitations (v0, stated not hidden)
@@ -65,8 +66,13 @@ change only), and per-company score-history sparklines in each drill-down.
    permanently wider, not corrected.
 4. **Only Public is survey-anchored.** Other lenses are discourse indices.
 5. **Bluesky has no history.** Day-one capture is mandatory; gaps are permanent.
-6. GDELT ArtList carries no audience figures: each outlet counts as one voice
+6. GDELT GKG carries no audience figures: each outlet counts as one voice
    (reach = 1) until a better reach proxy is wired in.
+7. **GDELT source switch (v0.3.0).** Media/Business data now comes from raw GKG
+   files matched on title/URL/names/themes, not the DOC API's full-text index.
+   Volumes and tone levels break comparability at the switchover; treat GKG
+   tone as a fresh series from 2026-11-26. Backfilled days cover media +
+   business lenses only (other sources are live-only).
 
 ## Automation
 
