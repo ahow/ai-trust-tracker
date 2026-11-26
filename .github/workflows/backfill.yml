@@ -1,0 +1,66 @@
+# AI Trust Tracker — GKG history backfill (manual dispatch only).
+# MANUAL STEP: workflow files cannot be pushed by API token (GitHub
+# workflow-scope restriction). Paste via repo web UI:
+#   Add file -> .github/workflows/backfill.yml
+name: backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      from_day:
+        description: "Backfill start, YYYY-MM-DD inclusive (oldest day)"
+        required: true
+        default: "2026-08-28"
+      to_day:
+        description: "Backfill end, YYYY-MM-DD inclusive (blank = yesterday)"
+        required: false
+        default: ""
+      budget_min:
+        description: "Time budget in minutes (job cap 6h; keep <= 330)"
+        required: true
+        default: "330"
+
+concurrency:
+  group: trust-pipeline          # shares the DB with the daily job — never race
+  cancel-in-progress: false
+
+permissions:
+  contents: write                # bot commits the DB snapshot + rebuilt dashboard
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restore DB cache (rolling history)
+        uses: actions/cache@v4
+        with:
+          path: data/trust.db
+          key: trust-db-${{ github.run_id }}
+          restore-keys: trust-db-
+
+      - name: Install deps
+        run: pip install requests pyyaml pytest
+
+      - name: Tests
+        run: python3 -m pytest tests/ -q
+
+      - name: Backfill GKG days (oldest missing first, budget-bounded)
+        run: |
+          ARGS="--from ${{ inputs.from_day }} --budget-min ${{ inputs.budget_min }}"
+          if [ -n "${{ inputs.to_day }}" ]; then ARGS="$ARGS --to ${{ inputs.to_day }}"; fi
+          python3 scripts/backfill_gkg.py $ARGS
+
+      - name: Build dashboard (publishes the extended history)
+        run: python3 scripts/build_dashboard.py
+
+      - name: Commit DB snapshot + dashboard
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "data: GKG backfill pass from ${{ inputs.from_day }}"
+          file_pattern: "docs/index.html data/trust.db"
