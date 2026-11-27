@@ -162,15 +162,15 @@ def run(day=None, timespan="1d", reuse=False, timelines=True,
         # in the window, rescaled. The published composite may be withheld for
         # lack of lenses; company relativity should not depend on that rule.
         fr = con.execute("""SELECT direction FROM items
-            WHERE day >= ? AND relevance >= ?""",
-            (since, params["rubric"]["relevance_drop_below"])).fetchall()
+            WHERE day >= ? AND day <= ? AND relevance >= ?""",
+            (since, day, params["rubric"]["relevance_drop_below"])).fetchall()
         if fr:
             field100 = combine.to_100(sum(r[0] for r in fr) / len(fr))
     rows = con.execute("""
         SELECT i.item_id, i.lens, i.direction, i.topics, i.dimension, ic.company_id
         FROM items i JOIN item_companies ic ON ic.item_id = i.item_id
-        WHERE i.day >= ? AND i.relevance >= ?""",
-        (since, params["rubric"]["relevance_drop_below"])).fetchall()
+        WHERE i.day >= ? AND i.day <= ? AND i.relevance >= ?""",
+        (since, day, params["rubric"]["relevance_drop_below"])).fetchall()
     by_co = {}
     for item_id, lens, d, topics, dim, cid in rows:
         by_co.setdefault(cid, []).append((lens, d, topics, dim))

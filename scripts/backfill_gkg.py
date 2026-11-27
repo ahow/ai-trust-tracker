@@ -24,18 +24,26 @@ def days_between(a, b):
     return [(d0 + datetime.timedelta(days=i)).isoformat()
             for i in range((d1 - d0).days + 1)]
 
-def backfill(from_day, to_day=None, budget_min=300):
+def backfill(from_day, to_day=None, budget_min=300, force=False):
     to_day = to_day or (datetime.datetime.now(datetime.UTC).date() -
                         datetime.timedelta(days=1)).isoformat()
     t0 = time.time()
-    con = store.connect(DB)
-    have = {r[0] for r in con.execute(
-        "SELECT t.day FROM timeline_daily t JOIN series s ON s.day = t.day "
-        "WHERE t.source='gdelt'")}   # require both: a day interrupted mid-run is redone
-    con.close()
-    todo = [d for d in days_between(from_day, to_day) if d not in have]
-    print(f"backfill: {from_day}..{to_day} | {len(todo)} days to do "
-          f"({len(days_between(from_day, to_day)) - len(todo)} already present)")
+    if force:
+        # Re-run EVERY day in range (e.g. after a term-list or scoring fix).
+        # Oldest-first keeps each day's 7-day company window correct: the
+        # preceding 6 days have already been refreshed when day d runs.
+        todo = days_between(from_day, to_day)
+        print(f"backfill FORCE: {from_day}..{to_day} | re-running all "
+              f"{len(todo)} days")
+    else:
+        con = store.connect(DB)
+        have = {r[0] for r in con.execute(
+            "SELECT t.day FROM timeline_daily t JOIN series s ON s.day = t.day "
+            "WHERE t.source='gdelt'")}   # require both: an interrupted day is redone
+        con.close()
+        todo = [d for d in days_between(from_day, to_day) if d not in have]
+        print(f"backfill: {from_day}..{to_day} | {len(todo)} days to do "
+              f"({len(days_between(from_day, to_day)) - len(todo)} already present)")
     done = 0
     for d in todo:
         if time.time() - t0 > budget_min * 60:
@@ -54,10 +62,12 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     if "--from" not in args:
         sys.exit("usage: backfill_gkg.py --from YYYY-MM-DD [--to YYYY-MM-DD] "
-                 "[--budget-min N]")
+                 "[--budget-min N] [--force]")
     kw = {"from_day": args[args.index("--from") + 1]}
     if "--to" in args:
         kw["to_day"] = args[args.index("--to") + 1]
     if "--budget-min" in args:
         kw["budget_min"] = int(args[args.index("--budget-min") + 1])
+    if "--force" in args:
+        kw["force"] = True
     backfill(**kw)
