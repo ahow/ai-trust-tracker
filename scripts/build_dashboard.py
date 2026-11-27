@@ -65,8 +65,7 @@ function lensCard(l){
     <div class="mut" style="font-size:11px">${srcs||'no sources reported'}</div></div>`;
 }
 function spark(hist){
-  if(!hist||hist.length<2) return '';
-  const W=200,H=36;
+  if(!hist||hist.length<2) return '';  const W=200,H=36;
   const xs=hist.map((p,i)=>i/(hist.length-1)*W);
   const ys=hist.map(p=>H-3-(p.v/100)*(H-6));
   const last=hist[hist.length-1].v, col=last>=50?'var(--pos)':'var(--neg)';
@@ -133,8 +132,64 @@ function trend(){
   }
   document.getElementById('trend').innerHTML=s+'<div class="mut" style="font-size:12px;margin-top:6px">'+legend+'</div>'+tlHtml;
 }
+/* Company trends: multi-company overlay chart. Solid = published days,
+   dashed = LOW CONF (thin data) days. Selection persists in localStorage. */
+const CT={sel:[],colors:['#5b8dd9','#d9a441','#3fb27f','#b07fd9','#e05d5d','#4fc3c7','#e08cb4','#9db35f']};
+function ctSave(){try{localStorage.setItem('ct.sel',JSON.stringify(CT.sel))}catch(e){}}
+function ctRender(){
+  const T=D.company_trends||{}, el=document.getElementById('cotrend');
+  if(!el) return;
+  if(Object.keys(T).length===0){el.innerHTML='<div class="note">Company trend lines populate once companies have 2+ scored days.</div>';return;}
+  const opts=Object.keys(T).filter(c=>!CT.sel.includes(c))
+    .sort((a,b)=>T[a].name.localeCompare(T[b].name))
+    .map(c=>`<option value="${c}">${esc(T[c].name)}</option>`).join('');
+  let h='<div style="margin-bottom:8px"><select id="ctadd" style="background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:13px"><option value="">+ Add a company…</option>'+opts+'</select> ';
+  CT.sel.forEach((c,i)=>{if(T[c]) h+=`<span class="badge" style="background:#222a35;color:${CT.colors[i%CT.colors.length]};cursor:pointer;margin-left:6px;font-size:11px;padding:4px 9px" data-c="${c}" title="Click to remove">${esc(T[c].name)} &times;</span>`;});
+  h+='</div><div id="ctchart"></div>';
+  el.innerHTML=h;
+  document.getElementById('ctadd').onchange=e=>{if(e.target.value){CT.sel.push(e.target.value);ctSave();ctRender();}};
+  el.querySelectorAll('span.badge[data-c]').forEach(b=>b.onclick=()=>{CT.sel=CT.sel.filter(x=>x!==b.dataset.c);ctSave();ctRender();});
+  ctDraw();
+}
+function ctDraw(){
+  const T=D.company_trends||{}, box=document.getElementById('ctchart');
+  const sel=CT.sel.filter(c=>T[c]);
+  if(sel.length===0){box.innerHTML='<div class="mut" style="font-size:12px">No companies selected — use the dropdown above.</div>';return;}
+  const days=[...new Set(sel.flatMap(c=>T[c].hist.map(p=>p[0])))].sort();
+  if(days.length<2){box.innerHTML='<div class="mut" style="font-size:12px">Trend lines populate as daily runs accumulate (currently '+days.length+' day'+(days.length===1?'':'s')+').</div>';return;}
+  const W=680,H=220,pad=34;
+  const X=i=>pad+i/(days.length-1)*(W-2*pad), Y=v=>H-pad-((v||0)/100)*(H-2*pad);
+  const idx=Object.fromEntries(days.map((d,i)=>[d,i]));
+  let s=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;background:var(--panel);border:1px solid var(--line);border-radius:10px">`;
+  sel.forEach((c,ci)=>{
+    const col=CT.colors[ci%CT.colors.length];
+    const pts=T[c].hist.filter(p=>p[0] in idx);
+    /* split into contiguous runs by LOW CONF flag; share boundary points so segments join */
+    let run=[pts[0]];
+    for(let k=1;k<pts.length;k++){
+      if(pts[k][2]===run[run.length-1][2]){run.push(pts[k]);}
+      else{s+=ctSeg(run,col);run=[run[run.length-1],pts[k]];}
+    }
+    s+=ctSeg(run,col);
+  });
+  function ctSeg(run,col){
+    if(run.length<2) return '';
+    const dash=run[0][2]?' stroke-dasharray="4 3" opacity="0.55"':'';
+    return `<polyline points="${run.map(p=>X(idx[p[0]]).toFixed(1)+','+Y(p[1]).toFixed(1)).join(' ')}" fill="none" stroke="${col}" stroke-width="1.6"${dash}/>`;
+  }
+  s+=`<text x="${pad}" y="${Y(100)-6}" fill="#8b94a1" font-size="10">100</text>`;
+  s+=`<text x="${pad}" y="${Y(0)+12}" fill="#8b94a1" font-size="10">0</text>`;
+  s+=`<text x="${X(0)}" y="${H-6}" fill="#8b94a1" font-size="10">${days[0]}</text>`;
+  s+=`<text x="${X(days.length-1)-60}" y="${H-6}" fill="#8b94a1" font-size="10">${days[days.length-1]}</text>`;
+  s+='</svg>';
+  box.innerHTML=s+'<div class="mut" style="font-size:12px;margin-top:6px">'+sel.map((c,i)=>`<span style="color:${CT.colors[i%CT.colors.length]}">— ${esc(T[c].name)}</span>`).join(' · ')
+    +' · <span style="opacity:.7">dashed = LOW CONF (thin data) day</span></div>';
+}
 function render(){
   trend();
+  {const T=D.company_trends||{};
+   CT.sel=JSON.parse(localStorage.getItem('ct.sel')||'null')|| (D.company_defaults||[]);
+   CT.sel=CT.sel.filter(c=>T[c]); ctRender();}
   const c=D.composite||{};
   document.getElementById('kpis').innerHTML=`
     <div class="kpi"><div class="v">${c.value??'—'}<span class="mut" style="font-size:13px"> /100</span>
@@ -205,9 +260,14 @@ def build(day=None):
     with open(os.path.join(ROOT, "config", "companies.yaml")) as f:
         meta_co = {c["id"]: c for c in yaml.safe_load(f)["companies"]}
     co_hist = {}
-    for cid2, d2, s2 in con.execute(
-            "SELECT company_id, day, score FROM company_daily ORDER BY day"):
-        co_hist.setdefault(cid2, []).append({"day": d2, "v": s2})
+    for cid2, d2, s2, lw2 in con.execute(
+            "SELECT company_id, day, score, low_confidence FROM company_daily ORDER BY day"):
+        co_hist.setdefault(cid2, []).append({"day": d2, "v": s2, "low": lw2})
+    # full histories for the Company trends overlay chart (compact arrays:
+    # [day, score, low_confidence]); only companies with >=2 scored days
+    co_trends = {cid: {"name": meta_co.get(cid, {}).get("name", cid),
+                       "hist": [[p["day"], p["v"], p["low"]] for p in hist]}
+                 for cid, hist in co_hist.items() if len(hist) >= 2}
     for r in con.execute("""SELECT company_id, score, rel_to_field, n_eff, n_lenses,
             low_confidence, top_topic FROM company_daily WHERE day=?
             ORDER BY n_eff DESC""", (day,)):
@@ -259,7 +319,11 @@ def build(day=None):
             "investor": {"value": inv[0]} if inv else None,
             "survey_gap": sgap, "lenses": lenses, "companies": companies,
             "sources": sources, "anchors": anchors,
-            "trend": {"composite": hist_c, "lenses": hist_l, "gdelt_tone": tone_hist}}
+            "trend": {"composite": hist_c, "lenses": hist_l, "gdelt_tone": tone_hist},
+            "company_trends": co_trends,
+            "company_defaults": [c["id"] for c in sorted(
+                (c for c in companies if c["id"] in co_trends and not c["low_confidence"]),
+                key=lambda c: -(c["n_eff"] or 0))[:4]]}
     built_at = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M UTC")
     html = f"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -270,6 +334,9 @@ def build(day=None):
 <div id="kpis" class="kpis"></div>
 <h2>Lenses</h2><div id="lenses" class="lenses"></div>
 <h2>Trend</h2><div id="trend"></div>
+<h2>Company trends</h2>
+<div class="mut" style="font-size:12px;margin-bottom:6px">Overlay company score histories — add several from the dropdown, click a chip to remove. Dashed segments are LOW CONF (thin data) days. Selection persists in this browser.</div>
+<div id="cotrend"></div>
 <div class="note">Media, Business and Technical lenses have no survey anchor — they are
 <b>discourse indices</b>, provisional until per-lens anchors exist. Public is the only lens
 that can currently claim a survey-anchored level. Non-coverage note: with X excluded, the
@@ -286,7 +353,10 @@ Within-lens: inverse-variance weights, 40% source cap. Composite: stated lens we
 Company scores need n_eff≥50 over 7 days and ≥2 lenses, else LOW CONF — shown, not hidden.
 GDELT data comes from raw GKG files since v0.3.0 (DOC API unusable); media/business volume
 and tone break comparability at the switchover, and backfilled days cover media+business
-lenses only. Full parameter register in docs/PARAMETER_REGISTER.md.</div>
+lenses only. v0.3.1 added a bare-&lsquo;AI&rsquo; title term (~2.6&times; media volume —
+another level break) and fixed a bug where backfilled company windows leaked future days;
+company history before the v0.3.1 re-backfill was contaminated and has been recomputed.
+Full parameter register in docs/PARAMETER_REGISTER.md.</div>
 </div><script>window.__DATA__={json.dumps(data)};</script><script>{JS}</script>
 </body></html>"""
     out = os.path.join(ROOT, "docs", "index.html")
