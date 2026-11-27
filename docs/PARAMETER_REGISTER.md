@@ -1,4 +1,4 @@
-# Parameter Register — AI Trust Tracker v0.3.0
+# Parameter Register — AI Trust Tracker v0.3.1
 
 Every tunable, its role, its status (PRIOR = uncalibrated starting value),
 and where it lives. Calibration changes arrive as proposals and are merged
@@ -107,4 +107,26 @@ wmean = −0.18, se = 0.07, n_eff = 189:
   - `scripts/backfill_gkg.py` + `backfill.yml` (manual dispatch): budget-
     bounded historical backfill, oldest-missing-day-first, safe to re-run.
     Backfilled days carry media + business lenses only.
+  No parameter values changed.
+- v0.3.1 (2026-11-26): **term widening + company-window bugfix.**
+  - **Bare-'AI' term added** — matched case-sensitively against the GKG
+    PAGE_TITLE only. Motivation: most headlines say "AI", not "artificial
+    intelligence". Measured on live batch 20261126214500 (763 articles):
+    current terms 10 matches; + bare AI case-insensitive over the full hay
+    72 (mostly junk — "Ai" names, URL path tokens); + bare AI title-only
+    case-sensitive 26, every sampled match a true positive. ~2.6x media
+    volume uplift at clean precision. **Level break** in media/business
+    volume and tone at the switch; deltas remain valid within each regime.
+  - **Company-window future-leak fix.** The 7-day company window query had
+    no upper bound (`day >= since` only), so any day scored while later
+    data existed in the DB counted future items — backfilled days showed
+    e.g. openai n_eff = 18,970 on a day with 1 actual openai item, and
+    company scores were means over future discourse. Fixed to
+    `day BETWEEN since AND day`; regression test added. **All company
+    history from pre-v0.3.1 backfill passes is invalid and must be
+    recomputed** — `backfill_gkg.py --force` re-runs days that already
+    have data (oldest-first keeps each day's window correct).
+  - Dashboard: Company trends overlay chart (multi-company, LOW CONF days
+    dashed, selection persists in localStorage). Company history payload
+    now carries the low_confidence flag per day.
   No parameter values changed.

@@ -35,7 +35,7 @@ src/aggregate.py         dedup, reach caps, author caps, weighted series
 src/combine.py           lens blending, composite, survey gap
 scripts/daily_update.py  collect → score → correct → aggregate → combine
 scripts/build_dashboard.py  static docs/index.html (GitHub Pages-ready)
-tests/test_core.py       22 tests
+tests/test_core.py       24 tests
 ```
 
 ## Run
@@ -45,13 +45,16 @@ python3 scripts/daily_update.py              # collect today + score + combine
 python3 scripts/daily_update.py --reuse      # re-run pipeline on stored items
 python3 scripts/daily_update.py --no-timelines  # skip writing GDELT tone rows
 python3 scripts/backfill_gkg.py --from 2026-08-28   # history, budget-bounded, re-runnable
+python3 scripts/backfill_gkg.py --from 2021-01-01 --force   # re-run days too (after term/scoring changes)
 python3 scripts/build_dashboard.py           # -> docs/index.html
-python3 -m pytest tests/ -q                  # 22 tests
+python3 -m pytest tests/ -q                  # 24 tests
 ```
 
 The dashboard shows field-level lens cards, a Trend section (composite band,
 per-lens lines, GDELT tone panel — word-list measure, read day-to-day
-change only), and per-company score-history sparklines in each drill-down.
+change only), a Company trends overlay chart (add several companies; dashed
+segments are LOW CONF days), and per-company score-history sparklines in
+each drill-down.
 
 ## Known limitations (v0, stated not hidden)
 
@@ -73,6 +76,11 @@ change only), and per-company score-history sparklines in each drill-down.
    Volumes and tone levels break comparability at the switchover; treat GKG
    tone as a fresh series from 2026-11-26. Backfilled days cover media +
    business lenses only (other sources are live-only).
+8. **Term-list widening (v0.3.1).** A bare-'AI' title match (case-sensitive)
+   was added after measurement showed ~2.6× media volume with clean precision
+   — another level break in media/business volume and tone at the switch.
+   Company-window fix: backfilled company scores computed before v0.3.1 leaked
+   future days into the 7-day window; history is recomputed by re-backfill.
 
 ## Automation
 
