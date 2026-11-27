@@ -1,6 +1,7 @@
 """Tests: rubric, aggregate, combine, collectors. Run: python3 -m pytest tests/ -q"""
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import rubric, aggregate, combine, collectors
 
 # ---------------------------------------------------------------- rubric
@@ -134,6 +135,58 @@ def test_gkg_terms_regex():
     assert not collectors._GKG_RE.search("He said again that climate is key")
     # ambiguous tokens we deliberately excluded
     assert not collectors._GKG_RE.search("The Gemini constellation and Claude Shannon")
+
+def test_gkg_bare_ai_title_only():
+    # v0.3.1: bare 'AI' matches case-sensitively on the TITLE only
+    assert collectors._GKG_TITLE_AI_RE.search("Patients turning to social media, AI for help")
+    assert collectors._GKG_TITLE_AI_RE.search("The long road to a post-AI world")
+    # case-insensitive junk we must NOT match
+    assert not collectors._GKG_TITLE_AI_RE.search("Ai Weiwei exhibition opens")
+    assert not collectors._GKG_TITLE_AI_RE.search("Hot ticket sales for Barn Fire Jam")
+    # parse-level: bare-AI title passes the filter with no other term present
+    row = ["x", "20261126214500", "1", "example.com",
+           "https://example.com/news/local-story"] + [""] * 10 \
+          + ["1.5,2,0.5,2.5,3,1,800"] + [""] * 10 \
+          + ['<PAGE_TITLE>Court discussing AI in sentencing</PAGE_TITLE>']
+    assert len(row) == 27
+    import io, zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("t.gkg.csv", "\t".join(row))
+    recs = collectors._gkg_parse_batch(buf.getvalue())
+    assert len(recs) == 1 and "AI" in recs[0]["title"]
+    # ...but bare 'AI' in URL/names alone (title clean) does NOT pass
+    row2 = list(row)
+    row2[4] = "https://example.com/ai/local-story"
+    row2[26] = "<PAGE_TITLE>Hot ticket sales for Barn Fire Jam</PAGE_TITLE>"
+    buf2 = io.BytesIO()
+    with zipfile.ZipFile(buf2, "w") as z:
+        z.writestr("t.gkg.csv", "\t".join(row2))
+    assert collectors._gkg_parse_batch(buf2.getvalue()) == []
+
+def test_company_window_excludes_future_days(tmp_path, monkeypatch):
+    """Regression (v0.3.1): the 7-day company window had no upper bound, so
+    backfilled days counted all FUTURE items (openai n_eff hit ~19k on days
+    with 1 actual item). Window must be [day-6, day], never beyond day."""
+    import store, daily_update
+    db = str(tmp_path / "t.db")
+    con = store.connect(db)
+    for day, n in (("2026-11-10", 3), ("2026-11-26", 5)):
+        for i in range(n):
+            con.execute(
+                "INSERT INTO items (item_id, source, lens, url, title, text, day, reach)"
+                " VALUES (?,?,?,?,?,?,?,?)",
+                (f"{day}-{i}", "gdelt", "media", f"http://x/{day}/{i}",
+                 "OpenAI faces trust questions", "ai safety debate", day, 1))
+    con.commit(); con.close()
+    monkeypatch.setattr(daily_update, "DB", db)
+    daily_update.run(day="2026-11-10", reuse=True, timelines=False)
+    con = store.connect(db)
+    row = con.execute("SELECT n_eff FROM company_daily"
+                      " WHERE day='2026-11-10' AND company_id='openai'").fetchone()
+    con.close()
+    assert row is not None, "openai should be scored on 2026-11-10"
+    assert row[0] == 3, f"future items leaked into window: n_eff={row[0]}, want 3"
 
 def test_gkg_batch_times_exact_day():
     import datetime as dt
