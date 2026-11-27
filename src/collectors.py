@@ -152,6 +152,11 @@ GKG_TERMS = [
 ]
 _GKG_RE = re.compile(r"\b(?:" + "|".join(GKG_TERMS) + r")\b", re.I)
 _GKG_TITLE_RE = re.compile(r"<PAGE_TITLE>(.*?)</PAGE_TITLE>", re.S)
+# v0.3.1: bare "AI" is how most headlines actually say it (~2.6x volume uplift,
+# measured on live batch 20261126214500: 10 -> 26 matches, all true positives).
+# Title-only and CASE-SENSITIVE: case-insensitive matching hits "Ai" names and
+# URL path tokens (7.2x but mostly junk); full-hay matching is noisy too.
+_GKG_TITLE_AI_RE = re.compile(r"\bAI\b")
 
 def _gkg_batch_times(hours, end=None):
     """15-min batch timestamps covering `hours` back from `end` (default now),
@@ -172,10 +177,10 @@ def _gkg_parse_batch(content):
                 if len(r) < 27:
                     continue
                 hay = " ".join((r[4], r[7], r[11], r[13], r[23], r[26]))
-                if not _GKG_RE.search(hay):
-                    continue
                 m = _GKG_TITLE_RE.search(r[26])
                 title = html.unescape(m.group(1)).strip() if m else ""
+                if not (_GKG_RE.search(hay) or _GKG_TITLE_AI_RE.search(title)):
+                    continue
                 tone = wc = None
                 try:
                     tp = r[15].split(",")
