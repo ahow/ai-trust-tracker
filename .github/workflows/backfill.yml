@@ -19,6 +19,11 @@ on:
         description: "Time budget in minutes (job cap 6h; keep <= 330)"
         required: true
         default: "330"
+      force:
+        description: "Re-run days that already have data (after term/scoring changes)"
+        type: boolean
+        required: true
+        default: false
 
 concurrency:
   group: trust-pipeline          # shares the DB with the daily job — never race
@@ -54,6 +59,7 @@ jobs:
         run: |
           ARGS="--from ${{ inputs.from_day }} --budget-min ${{ inputs.budget_min }}"
           if [ -n "${{ inputs.to_day }}" ]; then ARGS="$ARGS --to ${{ inputs.to_day }}"; fi
+          if [ "${{ inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
           python3 scripts/backfill_gkg.py $ARGS
 
       - name: Build dashboard (publishes the extended history)
